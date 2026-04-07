@@ -48,9 +48,6 @@ if [[ "$1" == "open-displays" ]]; then
     exit 0
 fi
 
-# Silent keepalive — nudge UC to re-check connections every refresh cycle
-pkill -HUP UniversalControl 2>/dev/null
-
 # Menu bar icon — neutral since we can't detect actual connection state
 echo "UC | sfimage=rectangle.connected.to.line.below"
 
