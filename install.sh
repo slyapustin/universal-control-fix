@@ -20,8 +20,8 @@ mkdir -p "$PLUGIN_DIR"
 
 # 3. Copy plugin
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cp "$SCRIPT_DIR/universal-control.30s.sh" "$PLUGIN_DIR/"
-chmod +x "$PLUGIN_DIR/universal-control.30s.sh"
+cp "$SCRIPT_DIR/universal-control.10s.sh" "$PLUGIN_DIR/"
+chmod +x "$PLUGIN_DIR/universal-control.10s.sh"
 echo "✓ Plugin installed to $PLUGIN_DIR"
 
 # 4. Set up passwordless sudo for UC process kills
