@@ -48,45 +48,31 @@ if [[ "$1" == "open-displays" ]]; then
     exit 0
 fi
 
-# Menu bar icon — green if UC + rapportd running, red if not
-if [[ -n "$UC_RUNNING" && -n "$RAPPORTD_RUNNING" ]]; then
-    echo "UC ✓ | color=green sfimage=rectangle.connected.to.line.below"
-else
-    echo "UC ✗ | color=red sfimage=rectangle.connected.to.line.below"
-fi
+# Menu bar icon — neutral since we can't detect actual connection state
+echo "UC | sfimage=rectangle.connected.to.line.below"
 
 echo "---"
 
-# Status section
-echo "Status | size=11 color=gray"
-if [[ -n "$UC_RUNNING" ]]; then
-    echo "  UniversalControl: running (PID $UC_RUNNING) | color=green size=12"
-else
-    echo "  UniversalControl: not running | color=red size=12"
-fi
-if [[ -n "$RAPPORTD_RUNNING" ]]; then
-    echo "  rapportd: running (PID $RAPPORTD_RUNNING) | color=green size=12"
-else
-    echo "  rapportd: not running | color=red size=12"
-fi
-
-SHARINGD_RUNNING=$(pgrep -x sharingd 2>/dev/null)
-if [[ -n "$SHARINGD_RUNNING" ]]; then
-    echo "  sharingd: running | color=green size=12"
-else
-    echo "  sharingd: not running | color=red size=12"
-fi
-
-echo "---"
-
-# Fix actions
-echo "⚡ Quick Fix (reconnect signal) | bash='$0' param1=soft-fix terminal=false refresh=true"
-echo "🔧 Hard Fix (restart all UC processes) | bash='$0' param1=hard-fix terminal=false refresh=true"
-echo "☢️ Nuclear Fix (reset prefs + restart all) | bash='$0' param1=nuclear-fix terminal=false refresh=true"
+# Fix actions (most useful first)
+echo "⚡ Quick Fix (reconnect signal) | bash='$0' param1=soft-fix terminal=false"
+echo "🔧 Hard Fix (restart all UC processes) | bash='$0' param1=hard-fix terminal=false"
+echo "☢️ Nuclear Fix (reset prefs + restart all) | bash='$0' param1=nuclear-fix terminal=false"
 
 echo "---"
 
 echo "Open Displays Settings (triggers rescan) | bash='$0' param1=open-displays terminal=false"
 
 echo "---"
-echo "Refreshes every 10s | size=11 color=gray"
+
+# Process status (informational only — running doesn't mean connected)
+echo "Processes | size=11 color=gray"
+if [[ -n "$UC_RUNNING" ]]; then
+    echo "  UniversalControl: running (PID $UC_RUNNING) | size=11"
+else
+    echo "  UniversalControl: not running | color=red size=11"
+fi
+if [[ -n "$RAPPORTD_RUNNING" ]]; then
+    echo "  rapportd: running (PID $RAPPORTD_RUNNING) | size=11"
+else
+    echo "  rapportd: not running | color=red size=11"
+fi
