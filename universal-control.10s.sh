@@ -94,23 +94,48 @@ else
     fi
 fi
 
-# --- Auto-fix flapping ---
-# If UC is flapping, auto-trigger a hard fix (max once per 2 minutes to avoid loops)
+# --- Auto-fix: flapping or prolonged disconnect ---
+# Rate-limited to once per 90 seconds to avoid loops
 
-if [[ "$UC_STATE" == "flapping" ]]; then
-    now=$(date +%s)
-    last_fix=0
-    [[ -f "$AUTOFIX_FILE" ]] && last_fix=$(cat "$AUTOFIX_FILE")
-    elapsed=$((now - last_fix))
+now=$(date +%s)
+last_fix=0
+[[ -f "$AUTOFIX_FILE" ]] && last_fix=$(cat "$AUTOFIX_FILE")
+elapsed=$((now - last_fix))
 
-    if [[ $elapsed -gt 120 ]]; then
-        echo "$now" > "$AUTOFIX_FILE"
-        killall UniversalControl 2>/dev/null
-        sudo killall rapportd 2>/dev/null
-        killall sharingd 2>/dev/null
-        killall ControlCenter 2>/dev/null
-        osascript -e 'display notification "Detected flapping — auto-restarted UC processes" with title "UC Fix" subtitle "Auto Fix"'
+should_fix=false
+fix_reason=""
+
+if [[ "$UC_STATE" == "flapping" && $elapsed -gt 90 ]]; then
+    should_fix=true
+    fix_reason="flapping"
+fi
+
+if [[ "$UC_STATE" == "disconnected" && $elapsed -gt 90 ]]; then
+    # Check how long we've been disconnected — fix if last connect was >30s ago
+    last_connect_ts=$(echo "$entries" | grep 'Connected Devices IDS: \[.\+\]' | tail -1 | awk '{print $1 " " $2}')
+    if [[ -n "$last_connect_ts" ]]; then
+        last_connect_epoch=$(date -j -f "%Y-%m-%d %H:%M:%S" "${last_connect_ts%.*}" +%s 2>/dev/null)
+        if [[ -n "$last_connect_epoch" ]]; then
+            disconnect_duration=$((now - last_connect_epoch))
+            if [[ $disconnect_duration -gt 30 ]]; then
+                should_fix=true
+                fix_reason="disconnected ${disconnect_duration}s"
+            fi
+        fi
+    else
+        # Never connected in the last 5 min
+        should_fix=true
+        fix_reason="no connection in 5min"
     fi
+fi
+
+if [[ "$should_fix" == "true" ]]; then
+    echo "$now" > "$AUTOFIX_FILE"
+    killall UniversalControl 2>/dev/null
+    sudo killall rapportd 2>/dev/null
+    killall sharingd 2>/dev/null
+    killall ControlCenter 2>/dev/null
+    osascript -e "display notification \"Auto-fix: $fix_reason\" with title \"UC Fix\" subtitle \"Auto Fix\""
 fi
 
 # --- Menu bar display ---
@@ -149,4 +174,4 @@ if [[ "$UC_STATE" == "flapping" ]]; then
     echo "  Connects: $connect_count | Disconnects: $disconnect_count (last 30s) | size=11"
 fi
 echo "---"
-echo "Auto-fix: flapping detected → hard restart (max 1x per 2min) | size=11 color=gray"
+echo "Auto-fix: flapping or disconnected >30s → hard restart (max 1x per 90s) | size=11 color=gray"
