@@ -1,14 +1,11 @@
 #!/bin/bash
 
 # <xbar.title>Universal Control Fix</xbar.title>
-# <xbar.version>v1.0</xbar.version>
+# <xbar.version>v2.0</xbar.version>
 # <xbar.author>Sergey</xbar.author>
 # <xbar.desc>Monitor and fix Universal Control between two Macs</xbar.desc>
 
 export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
-
-UC_RUNNING=$(pgrep -x UniversalControl 2>/dev/null)
-RAPPORTD_RUNNING=$(pgrep -x rapportd 2>/dev/null)
 
 # Handle actions from menu clicks
 if [[ "$1" == "soft-fix" ]]; then
@@ -29,13 +26,11 @@ if [[ "$1" == "hard-fix" ]]; then
 fi
 
 if [[ "$1" == "nuclear-fix" ]]; then
-    # Kill all processes
     killall UniversalControl 2>/dev/null
     sudo killall rapportd 2>/dev/null
     killall sharingd 2>/dev/null
     killall ControlCenter 2>/dev/null
     sudo pkill bluetoothd 2>/dev/null
-    # Delete corrupted prefs
     rm -f ~/Library/Preferences/com.apple.universalcontrol.plist 2>/dev/null
     rm -f ~/Library/Preferences/ByHost/com.apple.universalcontrol.* 2>/dev/null
     sleep 3
@@ -48,15 +43,79 @@ if [[ "$1" == "open-displays" ]]; then
     exit 0
 fi
 
-# Menu bar icon — neutral since we can't detect actual connection state
-echo "UC | sfimage=rectangle.connected.to.line.below"
+# --- Detect UC connection state from system logs ---
+
+UC_STATE="unknown"
+AUTOFIX_FILE="/tmp/uc-autofix-last"
+
+entries=$(/usr/bin/log show --last 30s \
+  --predicate 'subsystem == "com.apple.universalcontrol" AND category == "EVNT" AND eventMessage CONTAINS "Connected Devices IDS:"' \
+  --style compact 2>/dev/null)
+
+if [[ -n "$entries" ]]; then
+    last_entry=$(echo "$entries" | tail -1)
+    connect_count=$(echo "$entries" | grep -c 'Connected Devices IDS: \[.\+\]')
+    disconnect_count=$(echo "$entries" | grep -c 'Connected Devices IDS: \[\]')
+
+    # Flapping = rapid connect/disconnect cycles (broken state)
+    if [[ $connect_count -gt 3 && $disconnect_count -gt 3 ]]; then
+        UC_STATE="flapping"
+    elif echo "$last_entry" | grep -q 'Connected Devices IDS: \[.\+\]'; then
+        UC_STATE="connected"
+    else
+        UC_STATE="disconnected"
+    fi
+else
+    # No log entries in last 30s — check if UC process is even running
+    if pgrep -x UniversalControl >/dev/null 2>&1; then
+        UC_STATE="idle"
+    else
+        UC_STATE="not_running"
+    fi
+fi
+
+# --- Auto-fix flapping ---
+# If UC is flapping, auto-trigger a hard fix (max once per 2 minutes to avoid loops)
+
+if [[ "$UC_STATE" == "flapping" ]]; then
+    now=$(date +%s)
+    last_fix=0
+    [[ -f "$AUTOFIX_FILE" ]] && last_fix=$(cat "$AUTOFIX_FILE")
+    elapsed=$((now - last_fix))
+
+    if [[ $elapsed -gt 120 ]]; then
+        echo "$now" > "$AUTOFIX_FILE"
+        killall UniversalControl 2>/dev/null
+        sudo killall rapportd 2>/dev/null
+        killall sharingd 2>/dev/null
+        killall ControlCenter 2>/dev/null
+        osascript -e 'display notification "Detected flapping — auto-restarted UC processes" with title "UC Fix" subtitle "Auto Fix"'
+    fi
+fi
+
+# --- Menu bar display ---
+
+case "$UC_STATE" in
+    connected)
+        echo "UC ✓ | color=green sfimage=rectangle.connected.to.line.below"
+        ;;
+    flapping)
+        echo "UC ⚡ | color=orange sfimage=rectangle.connected.to.line.below"
+        ;;
+    disconnected)
+        echo "UC ✗ | color=red sfimage=rectangle.connected.to.line.below"
+        ;;
+    *)
+        echo "UC — | sfimage=rectangle.connected.to.line.below"
+        ;;
+esac
 
 echo "---"
 
-# Fix actions (most useful first)
-echo "⚡ Quick Fix (reconnect signal) | bash='$0' param1=soft-fix terminal=false"
-echo "🔧 Hard Fix (restart all UC processes) | bash='$0' param1=hard-fix terminal=false"
-echo "☢️ Nuclear Fix (reset prefs + restart all) | bash='$0' param1=nuclear-fix terminal=false"
+# Fix actions
+echo "⚡ Quick Fix (reconnect signal) | bash='$0' param1=soft-fix terminal=false refresh=true"
+echo "🔧 Hard Fix (restart all UC processes) | bash='$0' param1=hard-fix terminal=false refresh=true"
+echo "☢️ Nuclear Fix (reset prefs + restart all) | bash='$0' param1=nuclear-fix terminal=false refresh=true"
 
 echo "---"
 
@@ -64,15 +123,10 @@ echo "Open Displays Settings (triggers rescan) | bash='$0' param1=open-displays 
 
 echo "---"
 
-# Process status (informational only — running doesn't mean connected)
-echo "Processes | size=11 color=gray"
-if [[ -n "$UC_RUNNING" ]]; then
-    echo "  UniversalControl: running (PID $UC_RUNNING) | size=11"
-else
-    echo "  UniversalControl: not running | color=red size=11"
+# Status info
+echo "State: $UC_STATE | size=11 color=gray"
+if [[ -n "$entries" ]]; then
+    echo "  Connects: $connect_count | Disconnects: $disconnect_count (last 30s) | size=11"
 fi
-if [[ -n "$RAPPORTD_RUNNING" ]]; then
-    echo "  rapportd: running (PID $RAPPORTD_RUNNING) | size=11"
-else
-    echo "  rapportd: not running | color=red size=11"
-fi
+echo "---"
+echo "Auto-fix: flapping detected → hard restart (max 1x per 2min) | size=11 color=gray"
