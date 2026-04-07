@@ -48,25 +48,45 @@ fi
 UC_STATE="unknown"
 AUTOFIX_FILE="/tmp/uc-autofix-last"
 
-entries=$(/usr/bin/log show --last 30s \
+# Use 5-minute window to catch the last connection event (UC logs are sparse)
+entries=$(/usr/bin/log show --last 5m \
   --predicate 'subsystem == "com.apple.universalcontrol" AND category == "EVNT" AND eventMessage CONTAINS "Connected Devices IDS:"' \
   --style compact 2>/dev/null)
 
 if [[ -n "$entries" ]]; then
     last_entry=$(echo "$entries" | tail -1)
-    connect_count=$(echo "$entries" | grep -c 'Connected Devices IDS: \[.\+\]')
-    disconnect_count=$(echo "$entries" | grep -c 'Connected Devices IDS: \[\]')
 
-    # Flapping = rapid connect/disconnect cycles (broken state)
-    if [[ $connect_count -gt 3 && $disconnect_count -gt 3 ]]; then
+    # Check for flapping in the last 30 seconds only (recent instability)
+    now_epoch=$(date +%s)
+    recent_connects=0
+    recent_disconnects=0
+    while IFS= read -r line; do
+        # Extract timestamp and check if within last 30s
+        ts=$(echo "$line" | awk '{print $1 " " $2}')
+        ts_epoch=$(date -j -f "%Y-%m-%d %H:%M:%S" "${ts%.*}" +%s 2>/dev/null)
+        [[ -z "$ts_epoch" ]] && continue
+        age=$((now_epoch - ts_epoch))
+        if [[ $age -le 30 ]]; then
+            if echo "$line" | grep -q 'Connected Devices IDS: \[.\+\]'; then
+                recent_connects=$((recent_connects + 1))
+            else
+                recent_disconnects=$((recent_disconnects + 1))
+            fi
+        fi
+    done <<< "$entries"
+
+    # Flapping = rapid connect/disconnect cycles in last 30s
+    if [[ $recent_connects -gt 3 && $recent_disconnects -gt 3 ]]; then
         UC_STATE="flapping"
+        connect_count=$recent_connects
+        disconnect_count=$recent_disconnects
     elif echo "$last_entry" | grep -q 'Connected Devices IDS: \[.\+\]'; then
         UC_STATE="connected"
     else
         UC_STATE="disconnected"
     fi
 else
-    # No log entries in last 30s — check if UC process is even running
+    # No log entries in last 5 min — check if UC process is even running
     if pgrep -x UniversalControl >/dev/null 2>&1; then
         UC_STATE="idle"
     else
@@ -125,7 +145,7 @@ echo "---"
 
 # Status info
 echo "State: $UC_STATE | size=11 color=gray"
-if [[ -n "$entries" ]]; then
+if [[ "$UC_STATE" == "flapping" ]]; then
     echo "  Connects: $connect_count | Disconnects: $disconnect_count (last 30s) | size=11"
 fi
 echo "---"
